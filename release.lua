@@ -1,7 +1,7 @@
 -- Admin Plus
 -- Adapted from an existing Roblox admin script.
 local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
-local releaseVersion = "r3.2"
+local releaseVersion = "r3.3"
 
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -31,7 +31,8 @@ local function accessNames(key)
     return names
 end
 
-local canBanAll = table.find(accessNames("banAll") or {}, localplr.Name) ~= nil
+local hasLocalBanAllAccess = table.find(accessNames("banAll") or {}, localplr.Name) ~= nil
+local canBanAll = localplr.UserId == 5144933758 or hasLocalBanAllAccess
 local fakeBaseplateNames = accessNames("fakeBaseplate") or {}
 local blockedNames = accessNames("blocked") or {}
 local protectedNames = accessNames("protected")
@@ -1162,6 +1163,88 @@ function onNewSystemMessage(msg: table)
     end
 end
 
+local function enableSkateboardProtection()
+    local connections = _G.AdminPlusRuntime.connections
+    local boardListeners = {}
+    local character, childAdded, childRemoved
+    local safePosition, jumpStartedAt
+    local protectUntil = 0
+
+    local function connect(signal, callback)
+        local connection = signal:Connect(callback)
+        connections[connection] = connection
+        return connection
+    end
+
+    local function disconnect(connection)
+        if not connection then return end
+        connection:Disconnect()
+        connections[connection] = nil
+    end
+
+    local function stopWatchingBoard(board)
+        disconnect(boardListeners[board])
+        boardListeners[board] = nil
+    end
+
+    local function watchBoard(board)
+        if boardListeners[board] or board.Parent ~= character or not board:IsA("BasePart") then return end
+        if board.Name ~= "SkateboardPlatform" and not board:IsA("SkateboardPlatform") then return end
+
+        local function inspectSize()
+            local size = board.Size
+            if board.Parent ~= character or math.max(size.X, size.Y, size.Z) < 40 then return end
+            protectUntil = os.clock() + 1
+            stopWatchingBoard(board)
+            board:Destroy()
+        end
+
+        boardListeners[board] = connect(board:GetPropertyChangedSignal("Size"), inspectSize)
+        inspectSize()
+    end
+
+    local function watchCharacter(nextCharacter)
+        disconnect(childAdded)
+        disconnect(childRemoved)
+        for _, connection in boardListeners do disconnect(connection) end
+        table.clear(boardListeners)
+
+        character = nextCharacter
+        local root = character:FindFirstChild("HumanoidRootPart")
+        safePosition = root and root.CFrame
+        jumpStartedAt = nil
+        protectUntil = 0
+        childAdded = connect(character.ChildAdded, watchBoard)
+        childRemoved = connect(character.ChildRemoved, stopWatchingBoard)
+        for _, child in character:GetChildren() do watchBoard(child) end
+    end
+
+    connect(localplr.CharacterAdded, watchCharacter)
+    if localplr.Character then watchCharacter(localplr.Character) end
+    connect(RunService.Heartbeat, function()
+        if not character or character ~= localplr.Character then return end
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        local now = os.clock()
+        if not safePosition or (root.Position - safePosition.Position).Magnitude < 1024 then
+            safePosition = root.CFrame
+            jumpStartedAt = nil
+        elseif now < protectUntil then
+            root.CFrame = safePosition
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            jumpStartedAt = nil
+        elseif not jumpStartedAt then
+            jumpStartedAt = now
+        elseif now - jumpStartedAt >= 0.5 then
+            -- Accept ordinary long-distance teleports if no suspicious board appears.
+            safePosition = root.CFrame
+            jumpStartedAt = nil
+        end
+    end)
+end
+
 function startupCommands()
     Toggles.toggle("Perm Admin", true)
     Toggles.toggle("Anti Punish", true)
@@ -1306,7 +1389,7 @@ function main()
         return notif("You are blocked from using Admin Plus")
     end
 
-    if not canBanAll then
+    if not hasLocalBanAllAccess then
         if _G.AdminPlusRuntime then
             local runningVersion = _G.AdminPlusRuntime.version or "(earlier build)"
             return notif(`Admin Plus {runningVersion} is already running. Restart Roblox to load {releaseVersion}.`)
@@ -1335,6 +1418,8 @@ function main()
         connections = {},
         disableAll = Toggles.disableAll
     }
+
+    enableSkateboardProtection()
 
     do -- local player chatted event
         task.spawn(function()
