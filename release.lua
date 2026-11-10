@@ -226,7 +226,6 @@ local function notif(m: string, duration: number?)
     game.StarterGui:SetCore("SendNotification", {
         Title = "Admin Plus"; 
         Text = m; 
-        Icon = "rbxthumb://type=Asset&id=125495234290014&w=150&h=150",
         Duration = duration or 5;
     })
 end
@@ -857,18 +856,23 @@ function GUI(pos)
         return x
     end
 
-    local gui = Instance.new("ScreenGui", game.CoreGui) gui.Name = "sex" gui.ResetOnSpawn = false gui.IgnoreGuiInset = true gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+    local gui = Instance.new("ScreenGui", game.CoreGui) gui.Name = "AdminPlus" gui.ResetOnSpawn = false gui.IgnoreGuiInset = true gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
     local win = Instance.new("CanvasGroup", gui) win.AnchorPoint = Vector2.new(1, 0) win.Position = pos or UDim2.fromScale(.5, .25) win.Size = UDim2.fromOffset(363, 424) win.BackgroundColor3 = C.panel win.BorderSizePixel = 0 win.ClipsDescendants = true corner(win, 11) stroke(win, Color3.fromRGB(52,64,78)).Thickness = 1.5 Instance.new("UIDragDetector", win)
     local uiscale = Instance.new("UIScale", win)
     local bar = Instance.new("Frame", win) bar.Size = UDim2.new(1, 0, 0, 38) bar.BackgroundTransparency = 1
-    local icon = Instance.new("ImageLabel", bar) icon.Position = UDim2.new(0, 11,0.5, 0) icon.AnchorPoint = Vector2.new(0, .5) icon.Size = UDim2.fromOffset(18, 18) icon.Image = "rbxassetid://83804382478825" corner(icon, 1000)
+    local icon = label(bar, "A+", 14, C.text, true)
+    icon.Position = UDim2.new(0, 11, .5, 0)
+    icon.AnchorPoint = Vector2.new(0, .5)
+    icon.Size = UDim2.fromOffset(18, 18)
     local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
     local toolbar = Instance.new("Frame", win) toolbar.Position = UDim2.fromOffset(10, 48) toolbar.Size = UDim2.new(1, -20, 0, 83) toolbar.BackgroundTransparency = 1
     local search = Instance.new("TextBox", toolbar) search.Size = UDim2.new(1, 0, 0, 32) search.BackgroundColor3 = Color3.fromRGB(26,32,41) search.BorderSizePixel = 0 search.ClearTextOnFocus = false search.TextColor3 = C.text search.Text = "" search.TextSize = 13 search.PlaceholderColor3 = Color3.fromRGB(119,129,141) search.PlaceholderText = "Search commands..." search.Font = Enum.Font.Gotham search.TextXAlignment = Enum.TextXAlignment.Left corner(search, 7) Instance.new("UIPadding", search).PaddingLeft = UDim.new(0, 39)
-    local searchIcon = Instance.new("ImageLabel", search) searchIcon.Position = UDim2.fromOffset(-28, 0) searchIcon.Size = UDim2.new(0, 22, 1, 0) searchIcon.BackgroundTransparency = 1 searchIcon.ScaleType = Enum.ScaleType.Fit searchIcon.Image = "rbxassetid://100294586043107" searchIcon.BackgroundTransparency = 1 searchIcon.ImageColor3 = Color3.fromRGB(119, 129, 141)
+    local searchIcon = label(search, "⌕", 18, C.muted)
+    searchIcon.Position = UDim2.fromOffset(-28, 0)
+    searchIcon.Size = UDim2.fromOffset(22, 32)
     local nonefound = label(search, `<font weight="semibold">No commands found</font>\n<font weight="medium" transparency=".5">Try a different serach or category</font>`, 13, C.text) nonefound.Position = UDim2.fromScale(0, 6.1) nonefound.Size = UDim2.new(1, -39, 0, 50) nonefound.RichText = true nonefound.Visible = false nonefound.TextXAlignment = Enum.TextXAlignment.Center
     local catContainer = Instance.new("Frame", toolbar) catContainer.Position = UDim2.fromOffset(0, 40) catContainer.Size = UDim2.new(1, 0, 0, 27) catContainer.BackgroundTransparency = 1 
     local ll = Instance.new("UIListLayout", catContainer) ll.SortOrder = Enum.SortOrder.LayoutOrder ll.Padding = UDim.new(0, 4) ll.FillDirection = Enum.FillDirection.Horizontal ll.Wraps = true
@@ -877,7 +881,10 @@ function GUI(pos)
     local padding = Instance.new("UIPadding", list) padding.PaddingBottom = UDim.new(0, 4) padding.PaddingRight = UDim.new(0, 5)
 
     local mobileToggle = Instance.new("TextButton", gui) mobileToggle.ZIndex = 2 mobileToggle.Visible = false mobileToggle.Position = UDim2.fromScale(.5, .1) mobileToggle.Size = UDim2.fromOffset(41, 41) mobileToggle.BackgroundColor3 = C.panel stroke(mobileToggle, C.border).ApplyStrokeMode = Enum.ApplyStrokeMode.Border corner(mobileToggle, 7) -- Instance.new("UIDragDetector", mobileToggle)
-    local icon = Instance.new("ImageLabel", mobileToggle) icon.Position = UDim2.fromScale(.5, .5) icon.AnchorPoint = Vector2.new(.5, .5) icon.Size = UDim2.fromScale(.75, .75) icon.Image = "rbxassetid://83804382478825" icon.BackgroundTransparency = 1 corner(icon, 1000)
+    mobileToggle.Text = "A+"
+    mobileToggle.TextColor3 = C.text
+    mobileToggle.Font = Enum.Font.GothamBold
+    mobileToggle.TextSize = 16
     
     if not UIS.KeyboardEnabled then
         win.AnchorPoint = Vector2.zero
@@ -1048,7 +1055,7 @@ function onLocalPlayerChatted(msg: string)
 
     if cmd then
         if Cmds.get(cmd) then
-            chat("－ ＫｏｈｌｓＮｏｏｂ")
+            chat("－ Admin Plus")
         end
         Cmds.execute(cmd, args)
     end
@@ -1265,7 +1272,7 @@ function main()
     end
 
     if localplr.Name == "nowhudhejeir" then
-        return notif("blacklisted by khxcvvv")
+        return notif("You are blocked from using Admin Plus")
     end
 
     if not canBanAll then
@@ -2089,7 +2096,7 @@ Toggles.add({
             task.spawn(function() Util.f3x("SyncResize", {{Part = part, Size = size, CFrame = pos}}) end)
             if not state.text or state.text.Parent == nil or state.text.Parent.Parent == nil then
                 task.spawn(function() Util.f3x("CreateText", {{Part = part, Face = Enum.NormalId.Front, TextType = "TextLabel"}}) end)
-                task.spawn(function() state.text = part:WaitForChild("F3XSurfaceGui"); Util.f3x("SyncText", {{Part = part, Face = Enum.NormalId.Front, Surface = state.text, Text = "🔒 Harold was here 🔒"}}) end) 
+                task.spawn(function() state.text = part:WaitForChild("F3XSurfaceGui"); Util.f3x("SyncText", {{Part = part, Face = Enum.NormalId.Front, Surface = state.text, Text = "🔒 Admin Plus 🔒"}}) end) 
             else
                 task.spawn(function() Util.f3x("SetParent", {state.text}, part) end)
             end
