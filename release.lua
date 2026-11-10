@@ -15,6 +15,10 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local DataPing = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]
 
 local localplr = Players.LocalPlayer
+local canBanAll = localplr.Name == "haroldjd2017ipad"
+    or localplr.Name == "HaroldNyx"
+    or localplr.Name == "ORION_0011111"
+    or localplr.Name == "veryepic_9072"
 local localchar = localplr.Character or localplr.CharacterAdded:Wait()
 local mouse = localplr:GetMouse()
 local isXeno = identifyexecutor():sub(1,4) == "Xeno"
@@ -28,9 +32,6 @@ local _settings = {
     prefix = ">",
     spamSpeed = 10, -- rate per second
     rainbowSpeed = 1,
-    kickCD = 60*2,
-    kickAllCD = 60*10,
-    banCD = 60*5,
 }
 
 local hidder = ",‎"
@@ -164,9 +165,6 @@ local playersState = {
     loopkill = {},
     banned = {},
     kicked = {},
-    lastKick = 0,
-    lastKickAll = 0,
-    lastBan = 0
 }
 
 local session = {
@@ -1266,18 +1264,11 @@ function main()
         makefolder("AdminPlus")
     end
 
-    if not isfolder("AdminPlus/_aa") then
-        makefolder("AdminPlus/_aa")
-        writefile("AdminPlus/_aa/1", "0")
-        writefile("AdminPlus/_aa/2", "0")
-        writefile("AdminPlus/_aa/3", "0")
-    end
-    
     if localplr.Name == "nowhudhejeir" then
         return notif("blacklisted by khxcvvv")
     end
 
-    if localplr.Name ~= "haroldjd2017ipad" and localplr.Name ~= "HaroldNyx" and localplr.Name ~= "ORION_0011111" and localplr.Name ~= "veryepic_9072" then
+    if not canBanAll then
         if _G.AdminPlusRuntime then
             return notif("already executed!")
         end
@@ -1285,11 +1276,6 @@ function main()
         localplr.OnTeleport:Connect(function()
             queue_on_teleport(string.format("loadstring(game:HttpGet(%q))()", rawBase .. "release.lua"))
         end)
-
-    else
-        _settings.banCD = 0
-        _settings.kickCD = 0
-        _settings.kickAllCD = 0
     end
 
     local guipos
@@ -1407,12 +1393,6 @@ function main()
                 table.insert(playersState.banned, v:split("\\")[3])
             end
         end
-    end
-
-    do -- load kick and ban cooldown
-        session.lastKick = tonumber(readfile("AdminPlus/_aa/1"))
-        session.lastKickAll = tonumber(readfile("AdminPlus/_aa/2"))
-        session.lastBan = tonumber(readfile("AdminPlus/_aa/3"))
     end
 
     _G.AdminPlusRuntime.gui = GUI(guipos)
@@ -2189,29 +2169,8 @@ cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(ta
     local targets = {}
 
     if type(target) == "userdata" then
-        if tick() - session.lastKick < _settings.kickCD then
-            local remaining = math.ceil(_settings.kickCD - (tick() - session.lastKick))
-            say(`⚠ kick cmd is on cooldown! try again in: {remaining}s`)
-            notif(`⚠ kick cmd is on cooldown! try again in: {remaining}s`)
-            return
-        end
-
         targets = {target}
     elseif target == "all" then
-        if tick() - session.lastKickAll < _settings.kickAllCD then
-            local remaining = math.ceil(_settings.kickAllCD - (tick() - session.lastKickAll))
-            say(`⚠ "kick all" is on cooldown! try again in: {remaining}s`)
-            notif(`⚠ "kick all" is on cooldown! try again in: {remaining}s`)
-            return
-        end
-
-        if tick() - session.lastKick < _settings.kickCD then
-            local remaining = math.ceil(_settings.kickCD - (tick() - session.lastKick))
-            say(`⚠ kick cmd is on cooldown! try again in: {remaining}s`)
-            notif(`⚠ kick cmd is on cooldown! try again in: {remaining}s`)
-            return
-        end
-
         notif("kicking everyone...")
         for _,v in Players:GetPlayers() do
             if v ~= localplr then
@@ -2235,16 +2194,6 @@ cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(ta
         broadcast(`< Admin Plus >  {type(target) == "userdata" and target.DisplayName or "everyone"} has been KICKED from the server`)
         notif("successfuly kicked "..(type(target) == "userdata" and target.DisplayName or "everyone"))
         
-        if tick() - session.lastKick > _settings.kickCD then
-            session.lastKick = tick()
-            writefile("AdminPlus/_aa/1", tostring(session.lastKick))
-        end
-
-        if target == "all" and tick() - session.lastKickAll > _settings.kickAllCD then
-            session.lastKickAll = tick()
-            writefile("AdminPlus/_aa/2", tostring(session.lastKickAll))
-        end
-
         for _,target in table.clone(targets) do
             if table.find(dictionary.destructionProtected, target.Name) then
                 table.remove(targets, table.find(targets, target))
@@ -2263,16 +2212,9 @@ cmd("ban", "you are more powerful than your enemy", 7, {"player"}, function(targ
             return say("you cant ban yourself!")
         end
 
-        if tick() - session.lastBan < _settings.banCD then
-            local remaining = math.ceil(_settings.banCD - (tick() - session.lastBan))
-            say(`⚠ ban cmd is on cooldown! try again in: {remaining}s`)
-            notif(`⚠ ban cmd is on cooldown! try again in: {remaining}s`)
-            return
-        end
-
         targets = {target}
     elseif target == "all" then
-        if _settings.banCD ~= 0 then
+        if not canBanAll then
             say(`⚠ "ban all" is temporarily disabled. try only one at a time`)
             notif(`⚠ "ban all" is temporarily disabled. try only one at a time`)
             return
@@ -2293,12 +2235,6 @@ cmd("ban", "you are more powerful than your enemy", 7, {"player"}, function(targ
     end
 
     if not kick(targets) then return end
-
-    if tick() - session.lastBan > _settings.banCD then
-        session.lastBan = tick()
-        writefile("AdminPlus/_aa/3", tostring(session.lastBan))
-    end
-
 
     for _,v in targets do
         table.insert(playersState.banned, v.Name)
