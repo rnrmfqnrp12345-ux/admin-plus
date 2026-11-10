@@ -864,7 +864,7 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r4</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r3</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
@@ -2452,63 +2452,14 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         return notif("Usage: >decal <asset ID>")
     end
 
-    if session.applyingDecals then return notif("A decal command is already running") end
-
-    local modelByContainer = {[workspace] = false}
-    local function outerModel(container)
-        if not container then return false end
-        local cached = modelByContainer[container]
-        if cached ~= nil then return cached end
-        local model = outerModel(container.Parent) or (container:IsA("Model") and container) or false
-        modelByContainer[container] = model
-        return model
-    end
-
-    local modelGroups, groupsInOrder, looseParts = {}, {}, {}
-    local partCount = 0
+    local parts = {}
     for _, object in workspace:GetDescendants() do
         if object:IsA("BasePart") and object ~= workspace.Terrain then
-            local model = outerModel(object.Parent)
-            if model then
-                local group = modelGroups[model]
-                if not group then
-                    group = {}
-                    modelGroups[model] = group
-                    table.insert(groupsInOrder, group)
-                end
-                table.insert(group, object)
-            else
-                table.insert(looseParts, object)
-            end
-            partCount += 1
+            table.insert(parts, object)
         end
     end
-    if partCount == 0 then return notif("No parts found in Workspace") end
-
-    local batches = {}
-    local function addSlices(group, limit)
-        for first = 1, #group, limit do
-            table.insert(batches, table.move(group, first, math.min(first + limit - 1, #group), 1, {}))
-        end
-    end
-
-    -- Keep each outer model together when it fits. Fill the same request with smaller whole models.
-    local modelLimit = 256
-    local batch = {}
-    for _, group in groupsInOrder do
-        if #batch > 0 and #batch + #group > modelLimit then
-            table.insert(batches, batch)
-            batch = {}
-        end
-        if #group > modelLimit then
-            addSlices(group, modelLimit)
-        else
-            table.move(group, 1, #group, #batch + 1, batch)
-        end
-    end
-    if #batch > 0 then table.insert(batches, batch) end
-    addSlices(looseParts, 128)
-
+    if #parts == 0 then return notif("No parts found in Workspace") end
+    if session.applyingDecals then return notif("A decal command is already running") end
     session.applyingDecals = true
     pcall(notif, "Applying decals...")
 
@@ -2570,10 +2521,12 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
 
     -- F3X groups changes by part. Run one worker per face, one request at a time per worker.
     local faces = Enum.NormalId:GetEnumItems()
+    local batchSize = 128
     local function applyFace(face)
-        for _, parts in batches do
+        for first = 1, #parts, batchSize do
             local ready, missing = {}, {}
-            for _, part in parts do
+            for index = first, math.min(first + batchSize - 1, #parts) do
+                local part = parts[index]
                 if not deniedParts[part] and part:IsDescendantOf(workspace) then
                     local existing, matches = findDecal(part, face, texture)
                     if matches then
@@ -2615,7 +2568,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end)
     session.applyingDecals = false
 
-    local result = string.format("Decal applied to %d of %d faces", applied, partCount * #faces)
+    local result = string.format("Decal applied to %d of %d faces", applied, #parts * #faces)
     notif(ok and not workerFailed and result or result .. " (Building Tools request failed)")
 end)
 
