@@ -1,7 +1,7 @@
 -- Admin Plus
 -- Adapted from an existing Roblox admin script.
 local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
-local releaseVersion = "r3.1"
+local releaseVersion = "r3.2"
 
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -332,7 +332,7 @@ Util = (function()
         return f3x
     end
 
-    function utility.f3x(...)
+    function utility.getf3xEndpoint()
         local tool = utility.getf3x()
 
         local function waitforchild(parent, name, timeout)
@@ -369,7 +369,11 @@ Util = (function()
             if not endpoint:GetAttribute("loaded") then notif(tool.Parent and `your "Building Tools" failed to load, please try again` or "failed to execute command cuz you respawned", 7) error("f3x broken (3)", 2) end
         end
 
-        return endpoint:InvokeServer(...)
+        return endpoint
+    end
+
+    function utility.f3x(...)
+        return utility.getf3xEndpoint():InvokeServer(...)
     end
 
     function utility.getf3xModifiableItems()
@@ -1213,7 +1217,6 @@ function setupKick()
 end
 
 function kick(targets: { Player })
-    if not protectedNames then return false end
     targets = table.clone(targets)
 
     if not setupKick() then return print("failed to setup kick") end
@@ -2203,7 +2206,6 @@ cmd("permadmin", "gives you perm admin for free", 2, {"on/off"}, function(state:
 end)
 
 cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(target: Player | "all")
-    if not protectedNames then return notif("Configure protected targets in AdminPlus/access.json first") end
     local targets = {}
 
     if type(target) == "userdata" then
@@ -2243,7 +2245,6 @@ cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(ta
 end)
 
 cmd("ban", "you are more powerful than your enemy", 7, {"player"}, function(target: Player)
-    if not protectedNames then return notif("Configure protected targets in AdminPlus/access.json first") end
     local targets = {}
 
     if type(target) == "userdata" then
@@ -2467,40 +2468,59 @@ cmd("clear", {"clr"}, "a clear command that actually works", 6, function()
     notif("successfuly cleared the map")
 end)
 
-cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID"}, function(id: string?)
-    id = (id or ""):gsub("^rbxassetid://", "")
-    if not id:match("^[1-9]%d*$") or #id > 19 then
-        return notif("Usage: >decal <asset ID>")
+cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID or stop"}, function(id: string?)
+    if id and (id:lower() == "stop" or id:lower() == "cancel") then
+        local activeJob = session.decalJob
+        if not activeJob then return notif("No decal command is running") end
+        if activeJob.cancelled then return end
+
+        activeJob.cancelled = true
+        if activeJob.cancelServer then task.spawn(pcall, activeJob.cancelServer) end
+        for finish in activeJob.waiting do finish() end
+        return
     end
 
-    if session.applyingDecals then return notif("A decal command is already running") end
-    session.applyingDecals = true
-    pcall(notif, "Applying decals...")
+    id = (id or ""):gsub("^rbxassetid://", "")
+    if not id:match("^[1-9]%d*$") or #id > 19 then
+        return notif("Usage: >decal <asset ID> or >decal stop")
+    end
+
+    if session.decalJob then return notif("A decal command is already running. Use >decal stop to cancel.") end
+    local job = {waiting = {}}
+    session.decalJob = job
+    pcall(notif, "Applying decals... Use >decal stop to cancel.")
 
     local texture = "rbxassetid://" .. id
     local parts = {}
     local timedOut = false
     local function request(seconds, callback, ...)
+        if job.cancelled then error("Decal command stopped") end
         if timedOut then error("Decal request timed out") end
 
         local ready = Instance.new("BindableEvent")
         local settled, result = false, nil
-        local timer = task.delay(seconds, function()
-            settled = true
-            timedOut = true
-            ready:Fire()
-        end)
-        task.spawn(function(...)
-            local response = table.pack(pcall(callback, ...))
+        local timer
+        local function finish(response)
             if settled then return end
             settled = true
             result = response
-            task.cancel(timer)
+            job.waiting[finish] = nil
+            if timer then task.cancel(timer) end
             ready:Fire()
+        end
+        job.waiting[finish] = true
+        timer = task.delay(seconds, function()
+            timer = nil
+            timedOut = true
+            finish()
+        end)
+        task.spawn(function(...)
+            finish(table.pack(pcall(callback, ...)))
         end, ...)
         if not settled then ready.Event:Wait() end
         ready:Destroy()
 
+        if job.cancelled then error("Decal command stopped") end
         if not result then error("Decal request timed out") end
         if not result[1] then error(result[2]) end
         return table.unpack(result, 2, result.n)
@@ -2520,8 +2540,9 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end
 
     local applied = 0
+    local endpoint
     local function createMissing(changes, ready)
-        local created = request(20, Util.f3x, "CreateTextures", changes)
+        local created = request(20, endpoint.InvokeServer, endpoint, "CreateTextures", changes)
         local allCreated = type(created) == "table" and #created == #changes
         local pending = {}
         for _, change in changes do
@@ -2548,7 +2569,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             end
         end
         if #changes == 0 then return end
-        request(20, Util.f3x, "SyncTexture", changes)
+        request(20, endpoint.InvokeServer, endpoint, "SyncTexture", changes)
         task.wait()
 
         local pending = {}
@@ -2572,9 +2593,10 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
 
     -- F3X groups changes by part. Run one worker per face, one request at a time per worker.
     local faces = Enum.NormalId:GetEnumItems()
-    local batchSize = 128
+    local batchSize = 192
     local function applyFace(face)
         for first = 1, #parts, batchSize do
+            if job.cancelled or timedOut then return end
             local ready, missing = {}, {}
             for index = first, math.min(first + batchSize - 1, #parts) do
                 local part = parts[index]
@@ -2624,9 +2646,16 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             local imageId = texture:match("^rbxassetid://([1-9]%d*)$")
                 or texture:match("^https?://www%.roblox%.com/asset/?%?id=([1-9]%d*)$")
                 or id
-            return request(120, function() return server:InvokeServer(imageId) end)
+            local jobId
+            if server:GetAttribute("SupportsCancellation") then
+                jobId = HttpService:GenerateGUID(false)
+                job.cancelServer = function() server:InvokeServer("stop", jobId) end
+            end
+            job.sentToServer = true
+            return request(120, server.InvokeServer, server, imageId, jobId)
         end
 
+        endpoint = request(20, Util.getf3xEndpoint)
         local remaining = #faces
         for _, face in faces do
             task.spawn(function()
@@ -2636,8 +2665,14 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         end
         while remaining > 0 do task.wait() end
     end)
-    session.applyingDecals = false
+    session.decalJob = nil
 
+    if job.cancelled then
+        if job.sentToServer and not job.cancelServer then
+            return notif("Stopped waiting. Update the server decal script to stop server jobs.")
+        end
+        return notif("Decal command stopped. Applied decals remain.")
+    end
     if server then
         if timedOut then return notif("Server decal request timed out. You can try again.") end
         if not ok or type(serverResult) ~= "table" then return notif("Server decal request failed") end
