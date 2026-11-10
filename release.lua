@@ -2435,6 +2435,117 @@ cmd("clear", {"clr"}, "a clear command that actually works", 6, function()
     notif("successfuly cleared the map")
 end)
 
+cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID"}, function(id: string?)
+    id = (id or ""):gsub("^rbxassetid://", "")
+    if not id:match("^[1-9]%d*$") or #id > 19 then
+        return notif("Usage: >decal <asset ID>")
+    end
+
+    local parts = {}
+    for _, object in workspace:GetDescendants() do
+        if object:IsA("BasePart") and object ~= workspace.Terrain then
+            table.insert(parts, object)
+        end
+    end
+    if #parts == 0 then return notif("No parts found in Workspace") end
+    if session.applyingDecals then return notif("A decal command is already running") end
+    session.applyingDecals = true
+
+    local texture = "rbxassetid://" .. id
+
+    local function findDecal(part, face, visibleTexture)
+        for _, child in part:GetChildren() do
+            if child.ClassName == "Decal" and child.Face == face
+                and (not visibleTexture or (child.Texture == visibleTexture and child.Transparency == 0)) then
+                return child
+            end
+        end
+    end
+
+    local deniedParts = {}
+    local applied = 0
+    local function createMissing(changes, ready)
+        local created = Util.f3x("CreateTextures", changes)
+        if type(created) == "table" and next(created) then
+            for _, change in changes do
+                if #created == #changes or findDecal(change.Part, change.Face) then
+                    table.insert(ready, change)
+                end
+            end
+        elseif #changes == 1 then
+            deniedParts[changes[1].Part] = true
+        else
+            local middle = math.floor(#changes / 2)
+            createMissing(table.move(changes, 1, middle, 1, {}), ready)
+            createMissing(table.move(changes, middle + 1, #changes, 1, {}), ready)
+        end
+    end
+
+    local function sync(changes)
+        if #changes == 0 then return end
+        Util.f3x("SyncTexture", changes)
+        task.wait()
+
+        local pending = {}
+        for _, change in changes do
+            if findDecal(change.Part, change.Face, texture) then
+                applied += 1
+            elseif change.Part:IsDescendantOf(workspace) then
+                table.insert(pending, change)
+            end
+        end
+        if #pending == 0 or #changes == 1 then return end
+        local middle = math.ceil(#pending / 2)
+        sync(table.move(pending, 1, middle, 1, {}))
+        if middle < #pending then
+            sync(table.move(pending, middle + 1, #pending, 1, {}))
+        end
+    end
+
+    -- F3X groups changes by part, so send one face per part in each request.
+    local faces = Enum.NormalId:GetEnumItems()
+    local batchSize = 40
+    local ok = pcall(function()
+        local loaded, assets = pcall(function() return game:GetObjects(texture) end)
+        if loaded and type(assets) == "table" then
+            local image
+            for _, asset in assets do
+                local decal = asset:IsA("Decal") and asset or asset:FindFirstChildWhichIsA("Decal", true)
+                if not image and decal and decal.Texture ~= "" then
+                    image = decal.Texture
+                end
+                asset:Destroy()
+            end
+            texture = image or texture
+        end
+
+        for _, face in faces do
+            for first = 1, #parts, batchSize do
+                local ready, missing = {}, {}
+                for index = first, math.min(first + batchSize - 1, #parts) do
+                    local part = parts[index]
+                    if not deniedParts[part] and part:IsDescendantOf(workspace) then
+                        local change = {Part = part, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0}
+                        if findDecal(part, face, texture) then
+                            applied += 1
+                        elseif findDecal(part, face) then
+                            table.insert(ready, change)
+                        else
+                            table.insert(missing, change)
+                        end
+                    end
+                end
+                if #missing > 0 then createMissing(missing, ready) end
+                sync(ready)
+            end
+        end
+    end)
+    session.applyingDecals = false
+
+    local result = string.format("Decal applied to %d of %d faces", applied, #parts * #faces)
+    notif(ok and result or result .. " (Building Tools request failed)")
+end)
+
 cmd("skybox", "the sky look so weird", 6, {"image ID"}, function(id: number)
     local part = Util.skybox()
     Util.f3x("SyncMesh", {{Part = part, TextureId = "rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"}})
