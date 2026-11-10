@@ -864,7 +864,7 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r4 All Models Test</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r4 Model Test</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
@@ -2446,17 +2446,19 @@ cmd("clear", {"clr"}, "a clear command that actually works", 6, function()
     notif("successfuly cleared the map")
 end)
 
-cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID", "model (optional)"}, function(id: string?, mode: string?)
+cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID", "model/directmodel (optional)"}, function(id: string?, mode: string?)
     id = (id or ""):gsub("^rbxassetid://", "")
     mode = (mode or ""):lower()
-    if not id:match("^[1-9]%d*$") or #id > 19 or (mode ~= "" and mode ~= "model") then
-        return notif("Usage: >decal <asset ID> [model]")
+    if not id:match("^[1-9]%d*$") or #id > 19 or (mode ~= "" and mode ~= "model" and mode ~= "directmodel") then
+        return notif("Usage: >decal <asset ID> [model|directmodel]")
     end
 
     if session.applyingDecals then return notif("A decal command is already running") end
 
-    local directModels = mode == "model"
+    local directModels = mode == "directmodel"
+    local modelPartsOnly = mode == "model"
     local targetClass = directModels and "Model" or "BasePart"
+    local modelCount = 0
 
     local modelByContainer = {[workspace] = false}
     local function outerModel(container)
@@ -2471,8 +2473,12 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     local modelGroups, groupsInOrder, looseParts = {}, {}, {}
     local partCount = 0
     for _, object in workspace:GetDescendants() do
+        if mode ~= "" and object:IsA("Model") then
+            modelCount += 1
+        end
         if object:IsA(targetClass) and object ~= workspace.Terrain then
             local model = not directModels and outerModel(object.Parent)
+            if modelPartsOnly and not model then continue end
             if model then
                 local group = modelGroups[model]
                 if not group then
@@ -2487,7 +2493,11 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             partCount += 1
         end
     end
-    if partCount == 0 then return notif(directModels and "No models found in Workspace" or "No parts found in Workspace") end
+    if partCount == 0 then
+        if mode ~= "" and modelCount == 0 then return notif("No models found in Workspace") end
+        if modelPartsOnly then return notif(string.format("%d models found, but none contain loaded parts", modelCount)) end
+        return notif("No parts found in Workspace")
+    end
 
     local batches = {}
     local function addSlices(group, limit)
@@ -2624,8 +2634,9 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end)
     session.applyingDecals = false
 
-    if directModels then
-        local result = string.format("Direct model decals confirmed: %d of %d faces", applied, partCount * #faces)
+    if mode ~= "" then
+        local description = directModels and "direct model decal faces confirmed" or "model part faces applied"
+        local result = string.format("%d models found; %d of %d %s", modelCount, applied, partCount * #faces, description)
         if not ok or workerFailed then
             result ..= " (F3X: " .. tostring(requestError or workerError):sub(1, 120) .. ")"
         end
