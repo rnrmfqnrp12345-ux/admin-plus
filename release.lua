@@ -864,7 +864,7 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r2</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r3</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
@@ -2466,12 +2466,16 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     local texture = "rbxassetid://" .. id
 
     local function findDecal(part, face, visibleTexture)
+        local existing
         for _, child in part:GetChildren() do
-            if child.ClassName == "Decal" and child.Face == face
-                and (not visibleTexture or (child.Texture == visibleTexture and child.Transparency == 0)) then
-                return child
+            if child.ClassName == "Decal" and child.Face == face then
+                if not visibleTexture or (child.Texture == visibleTexture and child.Transparency == 0) then
+                    return child, true
+                end
+                existing = child
             end
         end
+        return existing, false
     end
 
     local deniedParts = {}
@@ -2500,7 +2504,8 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
 
         local pending = {}
         for _, change in changes do
-            if findDecal(change.Part, change.Face, texture) then
+            local _, matches = findDecal(change.Part, change.Face, texture)
+            if matches then
                 applied += 1
             elseif change.Part:IsDescendantOf(workspace) then
                 table.insert(pending, change)
@@ -2514,9 +2519,30 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         end
     end
 
-    -- F3X groups changes by part, so send one face per part in each request.
+    -- F3X groups changes by part. Run one worker per face, one request at a time per worker.
     local faces = Enum.NormalId:GetEnumItems()
-    local batchSize = 40
+    local batchSize = 128
+    local function applyFace(face)
+        for first = 1, #parts, batchSize do
+            local ready, missing = {}, {}
+            for index = first, math.min(first + batchSize - 1, #parts) do
+                local part = parts[index]
+                if not deniedParts[part] and part:IsDescendantOf(workspace) then
+                    local existing, matches = findDecal(part, face, texture)
+                    if matches then
+                        applied += 1
+                    else
+                        local changes = existing and ready or missing
+                        table.insert(changes, {Part = part, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0})
+                    end
+                end
+            end
+            if #missing > 0 then createMissing(missing, ready) end
+            sync(ready)
+        end
+    end
+
+    local workerFailed = false
     local ok = pcall(function()
         local loaded, assets = pcall(function() return game:GetObjects(texture) end)
         if loaded and type(assets) == "table" then
@@ -2531,31 +2557,19 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             texture = image or texture
         end
 
+        local remaining = #faces
         for _, face in faces do
-            for first = 1, #parts, batchSize do
-                local ready, missing = {}, {}
-                for index = first, math.min(first + batchSize - 1, #parts) do
-                    local part = parts[index]
-                    if not deniedParts[part] and part:IsDescendantOf(workspace) then
-                        local change = {Part = part, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0}
-                        if findDecal(part, face, texture) then
-                            applied += 1
-                        elseif findDecal(part, face) then
-                            table.insert(ready, change)
-                        else
-                            table.insert(missing, change)
-                        end
-                    end
-                end
-                if #missing > 0 then createMissing(missing, ready) end
-                sync(ready)
-            end
+            task.spawn(function()
+                if not pcall(applyFace, face) then workerFailed = true end
+                remaining -= 1
+            end)
         end
+        while remaining > 0 do task.wait() end
     end)
     session.applyingDecals = false
 
     local result = string.format("Decal applied to %d of %d faces", applied, #parts * #faces)
-    notif(ok and result or result .. " (Building Tools request failed)")
+    notif(ok and not workerFailed and result or result .. " (Building Tools request failed)")
 end)
 
 cmd("skybox", "the sky look so weird", 6, {"image ID"}, function(id: number)
