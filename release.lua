@@ -1,6 +1,7 @@
 -- Admin Plus
 -- Adapted from an existing Roblox admin script.
 local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
+local releaseVersion = "r3.1"
 
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -879,7 +880,7 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r3</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · {releaseVersion}</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
@@ -1304,7 +1305,8 @@ function main()
 
     if not canBanAll then
         if _G.AdminPlusRuntime then
-            return notif("Admin Plus is already running. Rejoin to load an update.")
+            local runningVersion = _G.AdminPlusRuntime.version or "(earlier build)"
+            return notif(`Admin Plus {runningVersion} is already running. Restart Roblox to load {releaseVersion}.`)
         end
 
         localplr.OnTeleport:Connect(function()
@@ -1326,6 +1328,7 @@ function main()
     end
 
     _G.AdminPlusRuntime = {
+        version = releaseVersion,
         connections = {},
         disableAll = Toggles.disableAll
     }
