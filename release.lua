@@ -864,12 +864,12 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r2</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
     local toolbar = Instance.new("Frame", win) toolbar.Position = UDim2.fromOffset(10, 48) toolbar.Size = UDim2.new(1, -20, 0, 83) toolbar.BackgroundTransparency = 1
-    local search = Instance.new("TextBox", toolbar) search.Size = UDim2.new(1, 0, 0, 32) search.BackgroundColor3 = Color3.fromRGB(26,32,41) search.BorderSizePixel = 0 search.ClearTextOnFocus = false search.TextColor3 = C.text search.Text = "" search.TextSize = 13 search.PlaceholderColor3 = Color3.fromRGB(119,129,141) search.PlaceholderText = "Search commands..." search.Font = Enum.Font.Gotham search.TextXAlignment = Enum.TextXAlignment.Left corner(search, 7) Instance.new("UIPadding", search).PaddingLeft = UDim.new(0, 39)
+    local search = Instance.new("TextBox", toolbar) search.Size = UDim2.new(1, 0, 0, 32) search.BackgroundColor3 = Color3.fromRGB(26,32,41) search.BorderSizePixel = 0 search.ClearTextOnFocus = false search.TextColor3 = C.text search.Text = "" search.TextSize = 13 search.PlaceholderColor3 = Color3.fromRGB(119,129,141) search.PlaceholderText = "Search or enter >command" search.Font = Enum.Font.Gotham search.TextXAlignment = Enum.TextXAlignment.Left corner(search, 7) Instance.new("UIPadding", search).PaddingLeft = UDim.new(0, 39)
     local searchIcon = label(search, "⌕", 18, C.muted)
     searchIcon.Position = UDim2.fromOffset(-28, 0)
     searchIcon.Size = UDim2.fromOffset(22, 32)
@@ -894,24 +894,30 @@ function GUI(pos)
     local cmdcards = {}
     local shits = Cmds.getall()
 
+    local function searchInput()
+        return search.Text:match("^%s*(.-)%s*$")
+    end
+
     local function showresults()
+        local query = searchInput():lower()
+        if query:sub(1, 1) == _settings.prefix then
+            query = query:sub(2)
+        end
+        query = query:match("^%s*(%S+)") or ""
+
         local found = false
-        
-        for _, cmd in shits do
-            local yes = cmd.name:find(search.Text)
-            local yes2 = false
-            for _,v in cmd.alias do
-                if v:find(search.Text) then
-                    yes2 = true
-                end
+        for _, command in shits do
+            local matches = command.name:find(query, 1, true) ~= nil
+            for _, alias in command.alias do
+                matches = matches or alias:find(query, 1, true) ~= nil
             end
-            local finalyes = (activeCat == "all" or cmd.category == activeCat) and (yes or yes2)
-            cmdcards[cmd.name].Visible = finalyes
-            if finalyes then
-                found = true
+            local card = cmdcards[command.name]
+            if card then
+                local visible = matches and (query ~= "" or activeCat == "all" or command.category == activeCat)
+                card.Visible = visible
+                found = found or visible
             end
         end
-        
         nonefound.Visible = not found
     end
 
@@ -969,8 +975,13 @@ function GUI(pos)
         end
     end
 
-    search:GetPropertyChangedSignal("Text"):Connect(function()
-        showresults()
+    search:GetPropertyChangedSignal("Text"):Connect(showresults)
+    search.FocusLost:Connect(function(enterPressed)
+        if not enterPressed then return end
+        local command, args = Cmds.parseMessage(searchInput())
+        if command and Cmds.get(command) then
+            Cmds.execute(command, args)
+        end
     end)
 
     local originalSize = win.Size
@@ -1277,11 +1288,11 @@ function main()
 
     if not canBanAll then
         if _G.AdminPlusRuntime then
-            return notif("already executed!")
+            return notif("Admin Plus is already running. Rejoin to load an update.")
         end
 
         localplr.OnTeleport:Connect(function()
-            queue_on_teleport(string.format("loadstring(game:HttpGet(%q))()", rawBase .. "release.lua"))
+            queue_on_teleport(string.format("loadstring(game:HttpGet(%q, true))()", rawBase .. "release.lua"))
         end)
     end
 
@@ -2450,6 +2461,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     if #parts == 0 then return notif("No parts found in Workspace") end
     if session.applyingDecals then return notif("A decal command is already running") end
     session.applyingDecals = true
+    pcall(notif, "Applying decals...")
 
     local texture = "rbxassetid://" .. id
 

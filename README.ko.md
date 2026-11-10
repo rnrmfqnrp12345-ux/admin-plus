@@ -15,7 +15,7 @@
 기존 저장소가 공개 재배포 라이선스를 표시하지 않으므로 공개 업로드 전에 본체와 맵의 재배포 권한을 확인합니다.
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/release.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/release.lua", true))()
 ```
 
 본체는 위의 네 파일을 같은 저장소에서 내려받습니다. 서버 목록과 음악 검색은 Roblox API를 사용합니다.
