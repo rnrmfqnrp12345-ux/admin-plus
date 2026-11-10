@@ -1,6 +1,6 @@
 -- Admin Plus
 -- Original script by HaroldNyx.
-local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
+local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/model-decal-test/"
 
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -864,7 +864,7 @@ function GUI(pos)
     icon.Position = UDim2.new(0, 11, .5, 0)
     icon.AnchorPoint = Vector2.new(0, .5)
     icon.Size = UDim2.fromOffset(18, 18)
-    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r4</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
+    local title = label(bar, `Admin Plus <font transparency=".5">| v3.0 DEV · r4 Model Test</font>`, 17, C.Text, true) title.Position = UDim2.new(0, 34, .5, 0) title.Size = UDim2.new(1, -100, 0.44736842105, 0) title.TextScaled = true title.AnchorPoint = Vector2.new(0, .5)
     local line = Instance.new("Frame", bar) line.Position = UDim2.new(0,0,1,-1) line.Size = UDim2.new(1,0,0,1) line.BackgroundColor3 = C.border line.BorderSizePixel = 0
     local close = Instance.new("TextButton", bar) close.BackgroundTransparency = 1 close.Text = "_"; close.TextSize=22 close.TextColor3 = Color3.fromRGB(150, 160, 171) close.Font = Enum.Font.Gotham close.Position = UDim2.new(1, -38, 0, 0) close.Size = UDim2.new(0, 34, 1, 0) Instance.new("UIPadding", close).PaddingBottom = UDim.new(0, 13)
     local open = close:Clone() open.Parent = close.Parent open.UIPadding:Destroy() open.Visible = false open.Text = "+"
@@ -2446,13 +2446,30 @@ cmd("clear", {"clr"}, "a clear command that actually works", 6, function()
     notif("successfuly cleared the map")
 end)
 
-cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID"}, function(id: string?)
+cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID", "model <name> (optional)"}, function(id: string?, mode: string?, ...: string)
     id = (id or ""):gsub("^rbxassetid://", "")
     if not id:match("^[1-9]%d*$") or #id > 19 then
-        return notif("Usage: >decal <asset ID>")
+        return notif("Usage: >decal <asset ID> [model <name>]")
     end
 
     if session.applyingDecals then return notif("A decal command is already running") end
+
+    local targetModel
+    if mode and mode ~= "" then
+        local modelName = table.concat({...}, " ")
+        if mode:lower() ~= "model" or modelName == "" then
+            return notif("Usage: >decal <asset ID> model <exact model name>")
+        end
+        for _, object in workspace:GetDescendants() do
+            if object:IsA("Model") and object.Name == modelName then
+                if targetModel then
+                    return notif("More than one model has that name. Use a uniquely named test model.")
+                end
+                targetModel = object
+            end
+        end
+        if not targetModel then return notif("Test model not found") end
+    end
 
     local modelByContainer = {[workspace] = false}
     local function outerModel(container)
@@ -2466,7 +2483,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
 
     local modelGroups, groupsInOrder, looseParts = {}, {}, {}
     local partCount = 0
-    for _, object in workspace:GetDescendants() do
+    for _, object in (targetModel and {} or workspace:GetDescendants()) do
         if object:IsA("BasePart") and object ~= workspace.Terrain then
             local model = outerModel(object.Parent)
             if model then
@@ -2483,7 +2500,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             partCount += 1
         end
     end
-    if partCount == 0 then return notif("No parts found in Workspace") end
+    if not targetModel and partCount == 0 then return notif("No parts found in Workspace") end
 
     local batches = {}
     local function addSlices(group, limit)
@@ -2590,7 +2607,8 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end
 
     local workerFailed = false
-    local ok = pcall(function()
+    local modelResult
+    local ok, requestError = pcall(function()
         local loaded, assets = pcall(function() return game:GetObjects(texture) end)
         if loaded and type(assets) == "table" then
             local image
@@ -2604,6 +2622,26 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             texture = image or texture
         end
 
+        if targetModel then
+            local face = Enum.NormalId.Front
+            if findDecal(targetModel, face) then
+                modelResult = "Model already has a direct Front decal. Use a clean test model."
+                return
+            end
+            local changes = {{Part = targetModel, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0}}
+            local created = Util.f3x("CreateTextures", changes)
+            if type(created) ~= "table" or #created == 0 then
+                modelResult = "F3X did not create a decal on the Model"
+                return
+            end
+            Util.f3x("SyncTexture", changes)
+            task.wait()
+            local _, matches = findDecal(targetModel, face, texture)
+            modelResult = matches and "Direct Front decal confirmed under the Model"
+                or "F3X returned a decal, but the Model texture update could not be confirmed"
+            return
+        end
+
         local remaining = #faces
         for _, face in faces do
             task.spawn(function()
@@ -2614,6 +2652,11 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         while remaining > 0 do task.wait() end
     end)
     session.applyingDecals = false
+
+    if targetModel then
+        if not ok then return notif("Model decal test failed: " .. tostring(requestError):sub(1, 180)) end
+        return notif(modelResult)
+    end
 
     local result = string.format("Decal applied to %d of %d faces", applied, partCount * #faces)
     notif(ok and not workerFailed and result or result .. " (Building Tools request failed)")
