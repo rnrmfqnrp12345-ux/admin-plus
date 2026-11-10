@@ -1,5 +1,5 @@
 -- Admin Plus
--- Original script by HaroldNyx.
+-- Adapted from an existing Roblox admin script.
 local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
 
 local RS = game:GetService("ReplicatedStorage")
@@ -15,10 +15,25 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local DataPing = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]
 
 local localplr = Players.LocalPlayer
-local canBanAll = localplr.Name == "haroldjd2017ipad"
-    or localplr.Name == "HaroldNyx"
-    or localplr.Name == "ORION_0011111"
-    or localplr.Name == "veryepic_9072"
+local accessPath = "AdminPlus/access.json"
+local accessOK, access = pcall(function()
+    if isfile(accessPath) then return HttpService:JSONDecode(readfile(accessPath)) end
+end)
+if not accessOK or type(access) ~= "table" then access = {} end
+
+local function accessNames(key)
+    local names = access[key]
+    if type(names) ~= "table" then return nil end
+    for index, name in names do
+        if type(index) ~= "number" or type(name) ~= "string" or name == "" then return nil end
+    end
+    return names
+end
+
+local canBanAll = table.find(accessNames("banAll") or {}, localplr.Name) ~= nil
+local fakeBaseplateNames = accessNames("fakeBaseplate") or {}
+local blockedNames = accessNames("blocked") or {}
+local protectedNames = accessNames("protected")
 local localchar = localplr.Character or localplr.CharacterAdded:Wait()
 local mouse = localplr:GetMouse()
 local isXeno = identifyexecutor():sub(1,4) == "Xeno"
@@ -39,7 +54,7 @@ local hidder = ",‎"
 local categories = {"general", "admin", "spam", "player", "target", "world", "server", "misc", "menus"}
 
 local dictionary = {
-    destructionProtected = {"Trolling_E1", "GamingXKN2021", "gamingkhoaito129", "haroldjd2017ipad", "HaroldNyx", "schoolgriefer", "t_echr", "technoreaperX", "technosniperX"},
+    destructionProtected = protectedNames or {},
     
     blacklistedGears = {
        "BanHammer",
@@ -1197,6 +1212,7 @@ function setupKick()
 end
 
 function kick(targets: { Player })
+    if not protectedNames then return false end
     targets = table.clone(targets)
 
     if not setupKick() then return print("failed to setup kick") end
@@ -1282,7 +1298,7 @@ function main()
         makefolder("AdminPlus")
     end
 
-    if localplr.Name == "nowhudhejeir" then
+    if table.find(blockedNames, localplr.Name) then
         return notif("You are blocked from using Admin Plus")
     end
 
@@ -2184,6 +2200,7 @@ cmd("permadmin", "gives you perm admin for free", 2, {"on/off"}, function(state:
 end)
 
 cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(target: Player | "all")
+    if not protectedNames then return notif("Configure protected targets in AdminPlus/access.json first") end
     local targets = {}
 
     if type(target) == "userdata" then
@@ -2223,6 +2240,7 @@ cmd("kick", "tired of someone? here is the solution", 7, {"player"}, function(ta
 end)
 
 cmd("ban", "you are more powerful than your enemy", 7, {"player"}, function(target: Player)
+    if not protectedNames then return notif("Configure protected targets in AdminPlus/access.json first") end
     local targets = {}
 
     if type(target) == "userdata" then
@@ -2452,18 +2470,38 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         return notif("Usage: >decal <asset ID>")
     end
 
-    local parts = {}
-    for _, object in workspace:GetDescendants() do
-        if object:IsA("BasePart") and object ~= workspace.Terrain then
-            table.insert(parts, object)
-        end
-    end
-    if #parts == 0 then return notif("No parts found in Workspace") end
     if session.applyingDecals then return notif("A decal command is already running") end
     session.applyingDecals = true
     pcall(notif, "Applying decals...")
 
     local texture = "rbxassetid://" .. id
+    local parts = {}
+    local timedOut = false
+    local function request(seconds, callback, ...)
+        if timedOut then error("Decal request timed out") end
+
+        local ready = Instance.new("BindableEvent")
+        local settled, result = false, nil
+        local timer = task.delay(seconds, function()
+            settled = true
+            timedOut = true
+            ready:Fire()
+        end)
+        task.spawn(function(...)
+            local response = table.pack(pcall(callback, ...))
+            if settled then return end
+            settled = true
+            result = response
+            task.cancel(timer)
+            ready:Fire()
+        end, ...)
+        if not settled then ready.Event:Wait() end
+        ready:Destroy()
+
+        if not result then error("Decal request timed out") end
+        if not result[1] then error(result[2]) end
+        return table.unpack(result, 2, result.n)
+    end
 
     local function findDecal(part, face, visibleTexture)
         local existing
@@ -2478,37 +2516,47 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         return existing, false
     end
 
-    local deniedParts = {}
     local applied = 0
     local function createMissing(changes, ready)
-        local created = Util.f3x("CreateTextures", changes)
-        if type(created) == "table" and next(created) then
-            for _, change in changes do
-                if #created == #changes or findDecal(change.Part, change.Face) then
+        local created = request(20, Util.f3x, "CreateTextures", changes)
+        local allCreated = type(created) == "table" and #created == #changes
+        local pending = {}
+        for _, change in changes do
+            if change.Part:IsDescendantOf(workspace) then
+                if allCreated or findDecal(change.Part, change.Face) then
                     table.insert(ready, change)
+                else
+                    table.insert(pending, change)
                 end
             end
-        elseif #changes == 1 then
-            deniedParts[changes[1].Part] = true
-        else
-            local middle = math.floor(#changes / 2)
-            createMissing(table.move(changes, 1, middle, 1, {}), ready)
-            createMissing(table.move(changes, middle + 1, #changes, 1, {}), ready)
+        end
+        if #pending == 0 or #changes == 1 then return end
+        local middle = math.ceil(#pending / 2)
+        createMissing(table.move(pending, 1, middle, 1, {}), ready)
+        if middle < #pending then
+            createMissing(table.move(pending, middle + 1, #pending, 1, {}), ready)
         end
     end
 
     local function sync(changes)
+        for index = #changes, 1, -1 do
+            if not changes[index].Part:IsDescendantOf(workspace) then
+                table.remove(changes, index)
+            end
+        end
         if #changes == 0 then return end
-        Util.f3x("SyncTexture", changes)
+        request(20, Util.f3x, "SyncTexture", changes)
         task.wait()
 
         local pending = {}
         for _, change in changes do
-            local _, matches = findDecal(change.Part, change.Face, texture)
-            if matches then
-                applied += 1
-            elseif change.Part:IsDescendantOf(workspace) then
-                table.insert(pending, change)
+            if change.Part:IsDescendantOf(workspace) then
+                local _, matches = findDecal(change.Part, change.Face, texture)
+                if matches then
+                    applied += 1
+                else
+                    table.insert(pending, change)
+                end
             end
         end
         if #pending == 0 or #changes == 1 then return end
@@ -2527,7 +2575,7 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             local ready, missing = {}, {}
             for index = first, math.min(first + batchSize - 1, #parts) do
                 local part = parts[index]
-                if not deniedParts[part] and part:IsDescendantOf(workspace) then
+                if part:IsDescendantOf(workspace) then
                     local existing, matches = findDecal(part, face, texture)
                     if matches then
                         applied += 1
@@ -2543,8 +2591,20 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end
 
     local workerFailed = false
-    local ok = pcall(function()
-        local loaded, assets = pcall(function() return game:GetObjects(texture) end)
+    local server
+    local ok, serverResult = pcall(function()
+        server = RS:FindFirstChild("AdminPlusWorkspaceDecal")
+        if not server or not server:IsA("RemoteFunction") then
+            server = nil
+            for _, object in workspace:GetDescendants() do
+                if object:IsA("BasePart") and object ~= workspace.Terrain then
+                    table.insert(parts, object)
+                end
+            end
+            if #parts == 0 then return end
+        end
+
+        local loaded, assets = pcall(request, 20, function() return game:GetObjects(texture) end)
         if loaded and type(assets) == "table" then
             local image
             for _, asset in assets do
@@ -2555,6 +2615,13 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
                 asset:Destroy()
             end
             texture = image or texture
+        end
+
+        if server then
+            local imageId = texture:match("^rbxassetid://([1-9]%d*)$")
+                or texture:match("^https?://www%.roblox%.com/asset/?%?id=([1-9]%d*)$")
+                or id
+            return request(120, function() return server:InvokeServer(imageId) end)
         end
 
         local remaining = #faces
@@ -2568,8 +2635,20 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end)
     session.applyingDecals = false
 
-    local result = string.format("Decal applied to %d of %d faces", applied, #parts * #faces)
-    notif(ok and not workerFailed and result or result .. " (Building Tools request failed)")
+    if server then
+        if timedOut then return notif("Server decal request timed out. You can try again.") end
+        if not ok or type(serverResult) ~= "table" then return notif("Server decal request failed") end
+        if serverResult.message then return notif(serverResult.message) end
+        return notif(string.format("Decal applied to %d of %d faces (server Workspace)", serverResult.applied, serverResult.total))
+    end
+    if ok and #parts == 0 then return notif("No loaded parts found in Workspace") end
+    local result = string.format("Decal applied to %d of %d faces (%d loaded parts)", applied, #parts * #faces, #parts)
+    if timedOut then
+        result ..= " · Request timed out. You can try again."
+    elseif not ok or workerFailed then
+        result ..= " · Building Tools request failed."
+    end
+    notif(result)
 end)
 
 cmd("skybox", "the sky look so weird", 6, {"image ID"}, function(id: number)
@@ -3788,7 +3867,7 @@ cmd("floatspin", {"fspin"}, "float spin", 5, {"player"}, function(target: Player
 end)
 
 cmd("fakebp", "create fake baseplate that you can color and do shit", 6, function()
-    if localplr.Name ~= "HaroldNyx" and localplr.Name ~= "haroldjd2017ipad" then return notif("you don't have permission to use this command") end
+    if not table.find(fakeBaseplateNames, localplr.Name) then return notif("you don't have permission to use this command") end
     Util.fakeBaseplate()
 end)
 

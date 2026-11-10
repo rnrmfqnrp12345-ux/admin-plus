@@ -9,6 +9,7 @@
 | `assets/house_` | 원본 맵 데이터 |
 | `tools/dex.lua` | Dex++ stable-3.0 |
 | `tools/cobalt.luau` | Cobalt 2.2.5.18 |
+| `server/WorkspaceDecal.server.lua` | 소유한 게임의 Workspace 전체에 적용하는 선택 설치 스크립트 |
 
 `rnrmfqnrp12345-ux/admin-plus` 저장소의 `main` 브랜치 루트에 이 폴더의 내용물을 그대로 올립니다.
 
@@ -25,3 +26,13 @@ Dex++와 Cobalt는 원래 배포 파일을 그대로 보관했습니다. 도구 
 이전 Discord 웹훅은 제거했습니다. 새 초대 코드는 필요하면 `_G.AdminPlusInvite`에 설정합니다.
 이전 차단 기록을 이어 쓰려면 현재 서버에 해당하는 `bans-…` 폴더를 `AdminPlus`에 복사합니다.
 `kick`, `kick all`, `ban`은 별도의 재사용 대기시간 없이 실행됩니다.
+이 명령을 사용하려면 실행 환경의 로컬 `AdminPlus/access.json`에 보호할 계정의 `protected` 목록을 지정합니다.
+`banAll`, `fakeBaseplate`, `blocked`도 같은 파일에서 각 기능에 해당하는 Roblox 사용자 이름의 배열로 지정합니다.
+계정 이름은 현재 Roblox 사용자 이름과 대소문자까지 맞춥니다. 이 설정 파일은 개인 환경에만 둡니다.
+
+`>decal <asset ID>`는 폴더와 모델 깊이에 관계없이 Workspace 하위 BasePart의 여섯 면을 처리합니다.
+기본 Building Tools 경로는 클라이언트에 로드되어 있고 수정 권한이 있는 파트에 적용합니다.
+소유한 게임에서 스트리밍 범위 밖의 파트까지 적용하려면 Roblox Studio의 `ServerScriptService`에
+Script를 만든 뒤 `server/WorkspaceDecal.server.lua`의 내용을 붙여 넣고 플레이스에 게시합니다.
+개인 소유 플레이스는 소유자 계정이 실행할 수 있습니다. 그룹 소유 플레이스나 추가 관리자는
+서버 Script의 `ADMIN_USER_IDS`에 해당 Roblox 사용자 ID를 추가합니다.
