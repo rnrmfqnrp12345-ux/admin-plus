@@ -10,38 +10,42 @@ assert(not replicatedStorage:FindFirstChild(remoteName), "Install only one Works
 local faces = Enum.NormalId:GetEnumItems()
 local activeJob
 
-local function applyDecals(assetId, job)
-    local texture = "rbxassetid://" .. assetId
-    local applied, total = 0, 0
-    for _, part in workspace:GetDescendants() do
-        if not part:IsA("BasePart") or part == workspace.Terrain then continue end
-        total += #faces
-        if total % (128 * #faces) == 0 then
-            task.wait()
-            if job.cancelled then break end
-        end
-        if not part:IsDescendantOf(workspace) then continue end
-
-        local occupied = {}
-        for _, child in part:GetChildren() do
-            if child.ClassName == "Decal" then
-                child.Texture = texture
-                child.Transparency = 0
-                occupied[child.Face] = true
-            end
-        end
-
-        for _, face in faces do
-            if not occupied[face] then
-                local decal = Instance.new("Decal")
-                decal.Face = face
-                decal.Texture = texture
-                decal.Parent = part
-            end
-            applied += 1
+local function applyPart(part, texture)
+    local occupied = {}
+    for _, child in part:GetChildren() do
+        if child.ClassName == "Decal" then
+            child.Texture = texture
+            child.Transparency = 0
+            occupied[child.Face] = true
         end
     end
-    return {applied = applied, total = total, cancelled = job.cancelled}
+
+    for _, face in faces do
+        if not occupied[face] then
+            local decal = Instance.new("Decal")
+            decal.Face = face
+            decal.Texture = texture
+            decal.Parent = part
+        end
+    end
+end
+
+local function applyDecals(assetId, job)
+    local texture = "rbxassetid://" .. assetId
+    local targets = {}
+    for _, part in workspace:GetDescendants() do
+        if part:IsA("BasePart") and part ~= workspace.Terrain then table.insert(targets, part) end
+    end
+    local applied, total = 0, #targets * #faces
+    for index, part in targets do
+        if index % 128 == 0 then
+            task.wait()
+            if job.cancelled or os.clock() >= job.deadline then break end
+        end
+        if not part:IsDescendantOf(workspace) then continue end
+        if pcall(applyPart, part, texture) then applied += #faces end
+    end
+    return {applied = applied, total = total, cancelled = job.cancelled, expired = os.clock() >= job.deadline}
 end
 
 local remote = Instance.new("RemoteFunction")
@@ -66,7 +70,7 @@ remote.OnServerInvoke = function(player, assetId, jobId)
     end
     if activeJob then return {message = "A server decal command is already running"} end
 
-    local job = {player = player, id = jobId, cancelled = false}
+    local job = {player = player, id = jobId, cancelled = false, deadline = os.clock() + 90}
     activeJob = job
     local ok, result = pcall(applyDecals, assetId, job)
     activeJob = nil

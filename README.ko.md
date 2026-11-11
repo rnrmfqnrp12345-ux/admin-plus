@@ -33,6 +33,9 @@ Dex++와 Cobalt는 원래 배포 파일을 그대로 보관했습니다. 도구 
 
 `>decal <asset ID>`는 폴더와 모델 깊이에 관계없이 Workspace 하위 BasePart의 여섯 면을 처리합니다.
 적용 중 `>decal stop`을 입력하면 남은 작업을 멈춥니다. 이미 적용된 데칼은 남습니다.
+`>decal status`로 현재 단계, 확인된 면 수, 요청 수와 경과 시간을 확인합니다.
+F3X 작업은 최대 세 요청을 동시에 보내고, 복제를 기다린 뒤 빠진 면만 한 차례 보완합니다.
+개별 요청은 최대 12초, 전체 명령은 최대 90초까지 기다린 뒤 미확인 면 수를 표시합니다.
 기본 Building Tools 경로는 클라이언트에 로드되어 있고 수정 권한이 있는 파트에 적용합니다.
 소유한 게임에서 스트리밍 범위 밖의 파트까지 적용하려면 Roblox Studio의 `ServerScriptService`에
 Script를 만든 뒤 `server/WorkspaceDecal.server.lua`의 내용을 붙여 넣고 플레이스에 게시합니다.

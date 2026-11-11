@@ -1,7 +1,7 @@
 -- Admin Plus
 -- Adapted from an existing Roblox admin script.
 local rawBase = "https://raw.githubusercontent.com/rnrmfqnrp12345-ux/admin-plus/main/"
-local releaseVersion = "r3.3"
+local releaseVersion = "r3.4"
 
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -2554,6 +2554,15 @@ cmd("clear", {"clr"}, "a clear command that actually works", 6, function()
 end)
 
 cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"decal ID or stop"}, function(id: string?)
+    if id and id:lower() == "status" then
+        local activeJob = session.decalJob
+        if not activeJob then return notif("No decal command is running") end
+        if activeJob.sentToServer then
+            return notif(string.format("Applying on server · %ds · Use >decal stop to cancel", os.clock() - activeJob.startedAt))
+        end
+        if activeJob.refresh then activeJob.refresh() end
+        return notif(string.format("%s · %d/%d faces confirmed · %d requests · %ds", activeJob.phase, activeJob.confirmed, activeJob.total, activeJob.requests, os.clock() - activeJob.startedAt))
+    end
     if id and (id:lower() == "stop" or id:lower() == "cancel") then
         local activeJob = session.decalJob
         if not activeJob then return notif("No decal command is running") end
@@ -2571,7 +2580,8 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     end
 
     if session.decalJob then return notif("A decal command is already running. Use >decal stop to cancel.") end
-    local job = {waiting = {}}
+    local job = {waiting = {}, phase = "Preparing", confirmed = 0, total = 0, requests = 0, startedAt = os.clock()}
+    job.deadline = job.startedAt + 90
     session.decalJob = job
     pcall(notif, "Applying decals... Use >decal stop to cancel.")
 
@@ -2580,7 +2590,10 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
     local timedOut = false
     local function request(seconds, callback, ...)
         if job.cancelled then error("Decal command stopped") end
-        if timedOut then error("Decal request timed out") end
+        if timedOut or os.clock() >= job.deadline then
+            timedOut = true
+            error("Decal request timed out")
+        end
 
         local ready = Instance.new("BindableEvent")
         local settled, result = false, nil
@@ -2594,10 +2607,10 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             ready:Fire()
         end
         job.waiting[finish] = true
-        timer = task.delay(seconds, function()
+        timer = task.delay(math.min(seconds, job.deadline - os.clock()), function()
             timer = nil
             timedOut = true
-            finish()
+            for pending in job.waiting do pending() end
         end)
         task.spawn(function(...)
             finish(table.pack(pcall(callback, ...)))
@@ -2611,11 +2624,17 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         return table.unpack(result, 2, result.n)
     end
 
+    local function textureKey(value)
+        return value:match("^rbxassetid://(%d+)$")
+            or value:match("^https?://www%.roblox%.com/asset/?%?id=(%d+)$")
+            or value
+    end
+
     local function findDecal(part, face, visibleTexture)
         local existing
         for _, child in part:GetChildren() do
             if child.ClassName == "Decal" and child.Face == face then
-                if not visibleTexture or (child.Texture == visibleTexture and child.Transparency == 0) then
+                if not visibleTexture or (textureKey(child.Texture) == textureKey(visibleTexture) and child.Transparency == 0) then
                     return child, true
                 end
                 existing = child
@@ -2624,22 +2643,76 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         return existing, false
     end
 
-    local applied = 0
+    local faces = Enum.NormalId:GetEnumItems()
+    local createdFaces, deniedParts, knownParts = {}, {}, {}
+    local function scanParts()
+        local added = {}
+        for _, object in workspace:GetDescendants() do
+            if object:IsA("BasePart") and object ~= workspace.Terrain and not knownParts[object] then
+                knownParts[object] = true
+                table.insert(parts, object)
+                table.insert(added, object)
+            end
+        end
+        job.total = #parts * #faces
+        return added
+    end
+
+    local function readPending()
+        local pending = {}
+        local confirmed, total = 0, 0
+        for _, part in parts do
+            if part:IsDescendantOf(workspace) then
+                local matched = {}
+                for _, child in part:GetChildren() do
+                    if child.ClassName == "Decal" and textureKey(child.Texture) == textureKey(texture) and child.Transparency == 0 then
+                        matched[child.Face] = true
+                    end
+                end
+                for _, face in faces do
+                    total += 1
+                    if matched[face] then
+                        confirmed += 1
+                    else
+                        table.insert(pending, {Part = part, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0})
+                    end
+                end
+            end
+        end
+        job.confirmed, job.total = confirmed, total
+        return pending
+    end
+    job.refresh = readPending
+
     local endpoint
     local function createMissing(changes, ready)
-        local created = request(20, endpoint.InvokeServer, endpoint, "CreateTextures", changes)
-        local allCreated = type(created) == "table" and #created == #changes
+        for index = #changes, 1, -1 do
+            if deniedParts[changes[index].Part] or not changes[index].Part:IsDescendantOf(workspace) then
+                table.remove(changes, index)
+            end
+        end
+        if #changes == 0 then return end
+        job.requests += 1
+        local created = request(12, endpoint.InvokeServer, endpoint, "CreateTextures", changes)
+        -- F3X returns a table after accepting creation. Instance references can arrive later.
+        local accepted = type(created) == "table"
         local pending = {}
         for _, change in changes do
             if change.Part:IsDescendantOf(workspace) then
-                if allCreated or findDecal(change.Part, change.Face) then
+                if accepted or findDecal(change.Part, change.Face) then
+                    createdFaces[change.Part] = createdFaces[change.Part] or {}
+                    createdFaces[change.Part][change.Face] = true
                     table.insert(ready, change)
                 else
                     table.insert(pending, change)
                 end
             end
         end
-        if #pending == 0 or #changes == 1 then return end
+        if #pending == 0 then return end
+        if #changes == 1 then
+            deniedParts[changes[1].Part] = true
+            return
+        end
         local middle = math.ceil(#pending / 2)
         createMissing(table.move(pending, 1, middle, 1, {}), ready)
         if middle < #pending then
@@ -2649,47 +2722,27 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
 
     local function sync(changes)
         for index = #changes, 1, -1 do
-            if not changes[index].Part:IsDescendantOf(workspace) then
+            if deniedParts[changes[index].Part] or not changes[index].Part:IsDescendantOf(workspace) then
                 table.remove(changes, index)
             end
         end
         if #changes == 0 then return end
-        request(20, endpoint.InvokeServer, endpoint, "SyncTexture", changes)
-        task.wait()
-
-        local pending = {}
-        for _, change in changes do
-            if change.Part:IsDescendantOf(workspace) then
-                local _, matches = findDecal(change.Part, change.Face, texture)
-                if matches then
-                    applied += 1
-                else
-                    table.insert(pending, change)
-                end
-            end
-        end
-        if #pending == 0 or #changes == 1 then return end
-        local middle = math.ceil(#pending / 2)
-        sync(table.move(pending, 1, middle, 1, {}))
-        if middle < #pending then
-            sync(table.move(pending, middle + 1, #pending, 1, {}))
-        end
+        job.requests += 1
+        request(12, endpoint.InvokeServer, endpoint, "SyncTexture", changes)
     end
 
-    -- F3X groups changes by part. Run one worker per face, one request at a time per worker.
-    local faces = Enum.NormalId:GetEnumItems()
+    -- Keep each request to one change per part and limit simultaneous F3X calls.
     local batchSize = 192
-    local function applyFace(face)
-        for first = 1, #parts, batchSize do
+    local function applyFace(face, targets)
+        for first = 1, #targets, batchSize do
+            if os.clock() >= job.deadline then timedOut = true end
             if job.cancelled or timedOut then return end
             local ready, missing = {}, {}
-            for index = first, math.min(first + batchSize - 1, #parts) do
-                local part = parts[index]
-                if part:IsDescendantOf(workspace) then
+            for index = first, math.min(first + batchSize - 1, #targets) do
+                local part = targets[index]
+                if not deniedParts[part] and part:IsDescendantOf(workspace) then
                     local existing, matches = findDecal(part, face, texture)
-                    if matches then
-                        applied += 1
-                    else
+                    if not matches then
                         local changes = existing and ready or missing
                         table.insert(changes, {Part = part, Face = face, TextureType = "Decal", Texture = texture, Transparency = 0})
                     end
@@ -2697,24 +2750,47 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
             end
             if #missing > 0 then createMissing(missing, ready) end
             sync(ready)
+            if #ready == 0 and #missing == 0 then task.wait() end
         end
     end
 
     local workerFailed = false
+    local function runWorkers(items, callback)
+        local nextIndex, remaining = 1, math.min(3, #items)
+        for _ = 1, remaining do
+            task.spawn(function()
+                while nextIndex <= #items and not job.cancelled and not timedOut and os.clock() < job.deadline do
+                    local item = items[nextIndex]
+                    nextIndex += 1
+                    if not pcall(callback, item) then workerFailed = true end
+                end
+                if os.clock() >= job.deadline then timedOut = true end
+                remaining -= 1
+            end)
+        end
+        while remaining > 0 do task.wait() end
+    end
+
+    local function verify()
+        job.phase = "Verifying"
+        local pending = readPending()
+        if #pending > 0 then
+            local settleUntil = math.min(os.clock() + 1.25, job.deadline)
+            while os.clock() < settleUntil and not job.cancelled and not timedOut do task.wait() end
+            if os.clock() >= job.deadline then timedOut = true end
+            pending = readPending()
+        end
+        return pending
+    end
+
     local server
     local ok, serverResult = pcall(function()
         server = RS:FindFirstChild("AdminPlusWorkspaceDecal")
         if not server or not server:IsA("RemoteFunction") then
             server = nil
-            for _, object in workspace:GetDescendants() do
-                if object:IsA("BasePart") and object ~= workspace.Terrain then
-                    table.insert(parts, object)
-                end
-            end
-            if #parts == 0 then return end
         end
 
-        local loaded, assets = pcall(request, 20, function() return game:GetObjects(texture) end)
+        local loaded, assets = pcall(request, 12, function() return game:GetObjects(texture) end)
         if loaded and type(assets) == "table" then
             local image
             for _, asset in assets do
@@ -2737,19 +2813,37 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
                 job.cancelServer = function() server:InvokeServer("stop", jobId) end
             end
             job.sentToServer = true
-            return request(120, server.InvokeServer, server, imageId, jobId)
+            job.phase = "Applying on server"
+            return request(90, server.InvokeServer, server, imageId, jobId)
         end
 
-        endpoint = request(20, Util.getf3xEndpoint)
-        local remaining = #faces
-        for _, face in faces do
-            task.spawn(function()
-                if not pcall(applyFace, face) then workerFailed = true end
-                remaining -= 1
-            end)
-        end
-        while remaining > 0 do task.wait() end
+        local targets = scanParts()
+        if #targets == 0 or #readPending() == 0 then return end
+        endpoint = request(12, Util.getf3xEndpoint)
+        job.phase = "Applying"
+        runWorkers(faces, function(face) applyFace(face, targets) end)
+
+        -- Pick up parts that streamed in while the first batch was running, once.
+        targets = scanParts()
+        if #targets > 0 then runWorkers(faces, function(face) applyFace(face, targets) end) end
+        local pending = verify()
+        job.phase = "Repairing missing faces"
+        runWorkers(pending, function(change)
+            local part = change.Part
+            if deniedParts[part] or not part:IsDescendantOf(workspace) then return end
+            local existing, matches = findDecal(part, change.Face, texture)
+            if matches then return end
+            local ready = {}
+            if existing or (createdFaces[part] and createdFaces[part][change.Face]) then
+                table.insert(ready, change)
+            else
+                createMissing({change}, ready)
+            end
+            sync(ready)
+        end)
+        verify()
     end)
+    if timedOut and job.cancelServer then task.spawn(pcall, job.cancelServer) end
     session.decalJob = nil
 
     if job.cancelled then
@@ -2762,14 +2856,23 @@ cmd("decal", "applies a decal to all six faces of each Workspace part", 6, {"dec
         if timedOut then return notif("Server decal request timed out. You can try again.") end
         if not ok or type(serverResult) ~= "table" then return notif("Server decal request failed") end
         if serverResult.message then return notif(serverResult.message) end
-        return notif(string.format("Decal applied to %d of %d faces (server Workspace)", serverResult.applied, serverResult.total))
+        local result = string.format("Decal applied to %d of %d faces (server Workspace)", serverResult.applied, serverResult.total)
+        if serverResult.expired then result ..= " · Time limit reached." end
+        if serverResult.total > serverResult.applied then
+            result ..= string.format(" · %d faces unconfirmed.", serverResult.total - serverResult.applied)
+        end
+        return notif(result)
     end
     if ok and #parts == 0 then return notif("No loaded parts found in Workspace") end
-    local result = string.format("Decal applied to %d of %d faces (%d loaded parts)", applied, #parts * #faces, #parts)
+    readPending()
+    local result = string.format("Decal applied to %d of %d faces (%d loaded parts)", job.confirmed, job.total, job.total / #faces)
     if timedOut then
         result ..= " · Request timed out. You can try again."
     elseif not ok or workerFailed then
         result ..= " · Building Tools request failed."
+    end
+    if job.total > job.confirmed then
+        result ..= string.format(" · %d faces unconfirmed.", job.total - job.confirmed)
     end
     notif(result)
 end)
